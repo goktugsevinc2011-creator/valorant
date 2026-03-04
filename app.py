@@ -1,49 +1,79 @@
-==> Using Python version 3.14.3 (default)
-==> Docs on specifying a Python version: https://render.com/docs/python-version
-==> Using Poetry version 2.1.3 (default)
-==> Docs on specifying a Poetry version: https://render.com/docs/poetry-version
-==> Running build command 'pip install -r requirements.txt'...
-Collecting flask (from -r requirements.txt (line 1))
-  Downloading flask-3.1.3-py3-none-any.whl.metadata (3.2 kB)
-Collecting flask-cors (from -r requirements.txt (line 2))
-  Downloading flask_cors-6.0.2-py3-none-any.whl.metadata (5.3 kB)
-Collecting tls-client (from -r requirements.txt (line 3))
-  Downloading tls_client-1.0.1-py3-none-any.whl.metadata (5.0 kB)
-Collecting blinker>=1.9.0 (from flask->-r requirements.txt (line 1))
-  Downloading blinker-1.9.0-py3-none-any.whl.metadata (1.6 kB)
-Collecting click>=8.1.3 (from flask->-r requirements.txt (line 1))
-  Downloading click-8.3.1-py3-none-any.whl.metadata (2.6 kB)
-Collecting itsdangerous>=2.2.0 (from flask->-r requirements.txt (line 1))
-  Downloading itsdangerous-2.2.0-py3-none-any.whl.metadata (1.9 kB)
-Collecting jinja2>=3.1.2 (from flask->-r requirements.txt (line 1))
-  Downloading jinja2-3.1.6-py3-none-any.whl.metadata (2.9 kB)
-Collecting markupsafe>=2.1.1 (from flask->-r requirements.txt (line 1))
-  Downloading markupsafe-3.0.3-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.7 kB)
-Collecting werkzeug>=3.1.0 (from flask->-r requirements.txt (line 1))
-  Downloading werkzeug-3.1.6-py3-none-any.whl.metadata (4.0 kB)
-Downloading flask-3.1.3-py3-none-any.whl (103 kB)
-Downloading flask_cors-6.0.2-py3-none-any.whl (13 kB)
-Downloading tls_client-1.0.1-py3-none-any.whl (41.3 MB)
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 41.3/41.3 MB 36.8 MB/s  0:00:01
-Downloading blinker-1.9.0-py3-none-any.whl (8.5 kB)
-Downloading click-8.3.1-py3-none-any.whl (108 kB)
-Downloading itsdangerous-2.2.0-py3-none-any.whl (16 kB)
-Downloading jinja2-3.1.6-py3-none-any.whl (134 kB)
-Downloading markupsafe-3.0.3-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (23 kB)
-Downloading werkzeug-3.1.6-py3-none-any.whl (225 kB)
-Installing collected packages: tls-client, markupsafe, itsdangerous, click, blinker, werkzeug, jinja2, flask, flask-cors
-Menu
-Successfully installed blinker-1.9.0 click-8.3.1 flask-3.1.3 flask-cors-6.0.2 itsdangerous-2.2.0 jinja2-3.1.6 markupsafe-3.0.3 tls-client-1.0.1 werkzeug-3.1.6
-[notice] A new release of pip is available: 25.3 -> 26.0.1
-[notice] To update, run: pip install --upgrade pip
-==> Uploading build...
-==> Uploaded in 10.9s. Compression took 4.7s
-==> Build successful 🎉
-==> Deploying...
-==> Setting WEB_CONCURRENCY=1 by default, based on available CPUs in the instance
-==> Running 'python app.py'
-python: can't open file '/opt/render/project/src/app.py': [Errno 2] No such file or directory
-==> Exited with status 2
-==> Common ways to troubleshoot your deploy: https://render.com/docs/troubleshooting-deploys
-==> Running 'python app.py'
-python: can't open file '/opt/render/project/src/app.py': [Errno 2] No such file or directory
+import tls_client
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import re
+
+app = Flask(__name__)
+# CORS ayarı: Senin .gt.tc sitenden gelen isteklere izin verir
+CORS(app)
+
+@app.route('/')
+def home():
+    return "Valorant API Sunucusu Calisiyor!"
+
+@app.route('/api/get_stats', methods=['POST'])
+def get_stats():
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+
+    if not username or not password:
+        return jsonify({"success": False, "message": "Kullanıcı adı veya şifre eksik!"}), 400
+
+    # Modern tarayıcı taklidi yapan güvenli oturum
+    session = tls_client.Session(client_identifier="chrome_120")
+    
+    try:
+        # 1. Adım: Riot Auth Başlatma
+        auth_url = "https://auth.riotgames.com/api/v1/authorization"
+        init_body = {
+            "client_id": "play-valorant-web-client",
+            "nonce": "1",
+            "redirect_uri": "https://playvalorant.com/opt_in",
+            "response_type": "token id_token",
+            "scope": "account openid"
+        }
+        session.post(auth_url, json=init_body)
+
+        # 2. Adım: Giriş Yapma
+        login_body = {"type": "auth", "username": username, "password": password}
+        response = session.put(auth_url, json=login_body).json()
+
+        if "error" in response:
+            return jsonify({"success": False, "message": "Riot bilgileri hatali!"})
+
+        # 3. Adım: Token Ayıklama
+        auth_uri = response['response']['parameters']['uri']
+        access_token = re.search('access_token=([^&]+)', auth_uri).group(1)
+        
+        # 4. Adım: Entitlements Token ve UserID Alma
+        ent_headers = {"Authorization": f"Bearer {access_token}"}
+        ent_res = session.post("https://entitlements.riotgames.com/api/token/v1", headers=ent_headers, json={})
+        ent_token = ent_res.json()['entitlements_token']
+        
+        user_info = session.get("https://auth.riotgames.com/userinfo", headers=ent_headers).json()
+        user_id = user_info['sub']
+
+        # 5. Adım: Cüzdan Verilerini Çekme (EU/TR bölgesi için)
+        wallet_headers = {
+            "Authorization": f"Bearer {access_token}",
+            "X-Riot-Entitlements-JWT": ent_token
+        }
+        wallet = session.get(f"https://pd.eu.a.pvp.net/store/v1/wallet/{user_id}", headers=wallet_headers).json()
+
+        # VP ve Radianite ID'leri
+        vp = wallet['Balances'].get('86ca2b34-591d-45a0-9bc6-e26522c00249', 0)
+        rad = wallet['Balances'].get('e5912443-410a-4a90-835c-204b77d6ba58', 0)
+
+        return jsonify({
+            "success": True,
+            "vp": vp,
+            "rad": rad
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "message": "Sunucu hatasi oluştu!"})
+
+if __name__ == '__main__':
+    # Render için 0.0.0.0 host ayarı zorunludur
+    app.run(host='0.0.0.0', port=10000)
